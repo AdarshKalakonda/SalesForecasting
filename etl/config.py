@@ -20,9 +20,11 @@ def get_connection():
         password=DB_PASS
     )
     return conn
+from urllib.parse import quote_plus
 
 def get_engine():
+    password = quote_plus(DB_PASS)
     engine = create_engine(
-        f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        f"postgresql+psycopg2://{DB_USER}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
     return engine
