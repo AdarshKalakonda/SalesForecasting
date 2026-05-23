@@ -4,52 +4,48 @@ from sqlalchemy import text
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'etl'))
-from config import get_engine
+from config import get_engine, get_connection
 from pmdarima import auto_arima
 import warnings
 warnings.filterwarnings('ignore')
 
-def get_daily_sales():
-    engine = get_engine()
+TRAIN_CUTOFF  = '2017-06-01'
+FORECAST_DAYS = 90
+MODEL_VERSION = 'sarima_v1'
+FAMILY        = 'TOTAL'
+
+
+def get_daily_sales(store_nbr, engine):
     query = text("""
         SELECT date, SUM(total_sales) AS total_sales
         FROM mart.daily_sales
-        WHERE store_nbr = 44
+        WHERE store_nbr = :s
         GROUP BY date
         ORDER BY date
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql(query, conn, params={"s": store_nbr})
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
     return df
 
-def calculate_metrics(actual, predicted, model_name):
+
+def calculate_mape(actual, predicted):
     actual    = np.array(actual)
     predicted = np.array(predicted)
-    mae  = np.mean(np.abs(actual - predicted))
-    rmse = np.sqrt(np.mean((actual - predicted) ** 2))
-    mape = np.mean(np.abs((actual - predicted) /
-                   np.where(actual == 0, 1, actual))) * 100
-    print(f"\n{model_name}:")
-    print(f"  MAE  : {mae:,.2f}")
-    print(f"  RMSE : {rmse:,.2f}")
-    print(f"  MAPE : {mape:.2f}%")
-    return {"model": model_name, "MAE": round(mae,2),
-            "RMSE": round(rmse,2), "MAPE": round(mape,2)}
+    return float(np.mean(np.abs((actual - predicted) /
+                  np.where(actual == 0, 1, actual))) * 100)
 
-if __name__ == "__main__":
-    print("Loading data from PostgreSQL...")
-    df = get_daily_sales()
 
-    train = df[df.index < '2017-06-01']['total_sales']
-    test  = df[df.index >= '2017-06-01']['total_sales']
+def forecast_store(store_nbr, engine):
+    """Fit SARIMA for one store; return (mape, list-of-row-tuples) or (None, None)."""
+    df = get_daily_sales(store_nbr, engine)
 
-    print(f"Train size: {len(train)} days")
-    print(f"Test size : {len(test)} days")
+    train = df[df.index < TRAIN_CUTOFF]['total_sales']
+    test  = df[df.index >= TRAIN_CUTOFF]['total_sales']
 
-    print("\nRunning auto_arima to find best parameters...")
-    print("(This may take 3-5 minutes — please wait...)")
+    if len(train) < 60 or len(test) == 0:
+        return None, None
 
     model = auto_arima(
         train,
@@ -65,45 +61,84 @@ if __name__ == "__main__":
         stepwise=True,
         suppress_warnings=True,
         error_action='ignore',
-        trace=True
+        trace=False,
     )
 
-    print(f"\nBest model: {model.order} x {model.seasonal_order}")
-    print(model.summary())
+    test_preds = model.predict(n_periods=len(test))
+    mape = calculate_mape(test, test_preds)
 
-    print("\nGenerating forecast on test set...")
-    predictions, conf_int = model.predict(
-        n_periods=len(test),
-        return_conf_int=True
+    future_preds, future_ci = model.predict(
+        n_periods=FORECAST_DAYS,
+        return_conf_int=True,
     )
 
-    result = calculate_metrics(test, predictions, "ARIMA")
-
-    print("\nGenerating 90-day future forecast...")
-    future_forecast, future_ci = model.predict(
-        n_periods=90,
-        return_conf_int=True
-    )
-
-    last_date = df.index[-1]
+    last_date    = df.index[-1]
     future_dates = pd.date_range(
         start=last_date + pd.Timedelta(days=1),
-        periods=90
+        periods=FORECAST_DAYS,
     )
 
-    forecast_df = pd.DataFrame({
-        'forecast_date'   : future_dates,
-        'predicted_sales' : future_forecast,
-        'lower_ci'        : future_ci[:, 0],
-        'upper_ci'        : future_ci[:, 1]
-    })
+    rows = [
+        (
+            int(store_nbr),
+            FAMILY,
+            date.date(),
+            round(float(pred), 4),
+            round(float(ci[0]), 4),
+            round(float(ci[1]), 4),
+            MODEL_VERSION,
+        )
+        for date, pred, ci in zip(future_dates, future_preds, future_ci)
+    ]
 
-    print("\nFirst 10 days of 90-day forecast:")
-    print(forecast_df.head(10).to_string(index=False))
+    return mape, rows
 
-    forecast_df.to_csv('models/forecast_output.csv', index=False)
-    print("\nForecast saved to models/forecast_output.csv")
-    print(f"\nFinal ARIMA MAPE: {result['MAPE']}%")
-    print(f"Best baseline MAPE: 14.74%")
-    improvement = ((14.74 - result['MAPE']) / 14.74) * 100
-    print(f"Improvement over best baseline: {improvement:.2f}%")
+
+def write_to_db(all_rows):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("TRUNCATE TABLE mart.forecasts")
+            cur.executemany(
+                """
+                INSERT INTO mart.forecasts
+                    (store_nbr, family, forecast_date, predicted_sales,
+                     lower_ci, upper_ci, model_version, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """,
+                all_rows,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    engine      = get_engine()
+    all_rows    = []
+    summary     = []
+    total       = 54
+
+    print(f"Running SARIMA for {total} stores — this will take a while...\n")
+
+    for store_nbr in range(1, total + 1):
+        try:
+            mape, rows = forecast_store(store_nbr, engine)
+            if rows is None:
+                print(f"Store {store_nbr}/{total} — skipped (insufficient data)")
+                continue
+            all_rows.extend(rows)
+            summary.append({"store_nbr": store_nbr, "MAPE": round(mape, 2)})
+            print(f"Store {store_nbr}/{total} done — MAPE: {mape:.2f}%")
+        except Exception as e:
+            print(f"Store {store_nbr}/{total} — ERROR: {e}")
+
+    print(f"\nTruncating mart.forecasts and inserting {len(all_rows)} rows...")
+    write_to_db(all_rows)
+    print(f"Done. {len(all_rows)} rows written to mart.forecasts.")
+
+    summary_df = pd.DataFrame(summary)
+    out_path   = os.path.join(os.path.dirname(__file__), 'all_stores_forecast_summary.csv')
+    summary_df.to_csv(out_path, index=False)
+    print(f"\nSummary saved to models/all_stores_forecast_summary.csv")
+    print(f"\n{summary_df.to_string(index=False)}")
