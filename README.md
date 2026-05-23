@@ -75,47 +75,50 @@ This project simulates a real-world retail analytics pipeline for **Corporación
 ---
 
 ## 🏗️ Architecture
+
+```text
 Kaggle CSV (1.7M rows)
-│
-▼
-┌─────────────────┐
-│   ingest.py     │  ← Python + psycopg2 bulk load
-└────────┬────────┘
-│
-▼
-┌─────────────────────────────────────┐
-│         PostgreSQL — raw schema      │
-│  raw.sales  raw.stores  raw.oil     │
-│  raw.holidays                       │
-└────────┬────────────────────────────┘
-│
-▼
-┌─────────────────────────────────────┐
-│    SQL Transforms (7 SQL files)     │
-│  Window functions, CTEs, subqueries │
-└────────┬────────────────────────────┘
-│
-▼
-┌─────────────────────────────────────┐
-│         PostgreSQL — mart schema    │
-│  mart.daily_sales                   │
-│  mart.store_performance             │
-│  mart.forecasts (4,590 rows)        │
-└────────┬────────────────────────────┘
-│
-┌────┴────┐
-▼         ▼
-┌───────┐  ┌──────────────┐
-│   R   │  │ Python SARIMA│
-│  EDA  │  │  51 stores   │
-└───────┘  └──────┬───────┘
-│
-┌────────┴────────┐
-▼                 ▼
-┌──────────┐    ┌──────────────┐
-│  Tableau │    │  Streamlit   │
-│ Dashboard│    │     App      │
-└──────────┘    └──────────────┘
+        │
+        ▼
+  ┌─────────────┐
+  │  ingest.py  │  Python + psycopg2 bulk load
+  └──────┬──────┘
+         │
+        ▼
+  ┌──────────────────────────────┐
+  │   PostgreSQL — raw schema    │
+  │  raw.sales  raw.stores       │
+  │  raw.oil    raw.holidays     │
+  └──────┬───────────────────────┘
+         │
+        ▼
+  ┌──────────────────────────────┐
+  │   SQL Transforms (7 files)   │
+  │  CTEs · window fns · views   │
+  └──────┬───────────────────────┘
+         │
+        ▼
+  ┌──────────────────────────────┐
+  │   PostgreSQL — mart schema   │
+  │  mart.daily_sales            │
+  │  mart.store_performance      │
+  │  mart.forecasts (4,590 rows) │
+  └──────┬───────────────────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+ ┌─────┐  ┌──────────────┐
+ │  R  │  │ Python SARIMA│
+ │ EDA │  │  51 stores   │
+ └─────┘  └──────┬───────┘
+                 │
+         ┌───────┴───────┐
+         ▼               ▼
+   ┌──────────┐   ┌─────────────┐
+   │  Tableau │   │  Streamlit  │
+   │Dashboard │   │     App     │
+   └──────────┘   └─────────────┘
+```
 
 ---
 
@@ -135,43 +138,26 @@ Kaggle CSV (1.7M rows)
 ---
 
 ## 📁 Project Structure
-SalesForecasting/
-│
-├── 📂 sql/
-│   ├── 01_schema.sql           # Table definitions (raw + mart)
-│   ├── 03_data_quality.sql     # 5 automated validation checks
-│   ├── 04_window_functions.sql # Rolling avgs, rankings, MoM growth
-│   ├── 05_ctes_subqueries.sql  # CTEs, subqueries, best/worst days
-│   └── 06_mart_build.sql       # Mart table population
-│
-├── 📂 etl/
-│   ├── config.py               # Database connection helper
-│   └── ingest.py               # CSV → PostgreSQL bulk loader
-│
-├── 📂 models/
-│   ├── baseline.py             # Naive, MA, seasonal naive baselines
-│   ├── arima_model.py          # SARIMA for all 54 stores
-│   ├── write_forecasts.py      # Writes forecasts to PostgreSQL
-│   └── all_stores_forecast_summary.csv
-│
-├── 📂 app/
-│   ├── streamlit_app.py        # Main interactive dashboard
-│   ├── db.py                   # SQLAlchemy connection
-│   └── charts.py               # Plotly chart functions
-│
-├── 📂 reports/
-│   ├── model_accuracy.md       # SARIMA vs baseline comparison
-│   └── screenshots/            # Dashboard screenshots
-│
-├── 📂 data/
-│   └── sample/                 # 500-row sample for reviewers
-│
-├── 📂 tableau/
-│   └── tableau_public_link.txt # Live Tableau Public URL
-│
-├── .env.example                # Credentials template
-├── requirements.txt            # Python dependencies
-└── README.md
+
+| Folder | File | Purpose |
+|---|---|---|
+| `sql/` | `01_schema.sql` | Table definitions for raw and mart schemas |
+| `sql/` | `03_data_quality.sql` | 5 automated data validation checks |
+| `sql/` | `04_window_functions.sql` | Rolling averages, rankings, MoM growth |
+| `sql/` | `05_ctes_subqueries.sql` | CTEs, subqueries, best/worst day analysis |
+| `sql/` | `06_mart_build.sql` | Mart table population |
+| `etl/` | `config.py` | Database connection helper |
+| `etl/` | `ingest.py` | CSV to PostgreSQL bulk loader |
+| `models/` | `baseline.py` | Naive, MA, and seasonal naive baselines |
+| `models/` | `arima_model.py` | SARIMA forecasting for all 54 stores |
+| `models/` | `write_forecasts.py` | Writes forecasts to PostgreSQL |
+| `app/` | `streamlit_app.py` | Main interactive dashboard |
+| `app/` | `db.py` | SQLAlchemy connection |
+| `app/` | `charts.py` | Plotly chart functions |
+| `reports/` | `model_accuracy.md` | SARIMA vs baseline comparison |
+| `tableau/` | `tableau_public_link.txt` | Live Tableau Public URL |
+| *(root)* | `.env.example` | Credentials template |
+| *(root)* | `requirements.txt` | Python dependencies |
 
 ---
 
@@ -275,12 +261,6 @@ WHERE RANK() OVER (
     ORDER BY total_sales DESC
 ) <= 5
 ```
-
----
-
-## 📌 Resume Bullet
-
-> *Processed and validated 1.7M+ sales records in PostgreSQL using advanced SQL (window functions, CTEs, subqueries); performed EDA in R to validate ARIMA assumptions. Developed SARIMA forecasting models improving prediction accuracy by 55% over baseline. Built interactive Tableau dashboard and Streamlit app for executive-level reporting across 51 stores.*
 
 ---
 
