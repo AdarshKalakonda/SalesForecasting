@@ -161,6 +161,16 @@ Kaggle CSV (1.7M rows)
 
 ---
 
+## 📸 Screenshots
+
+### Streamlit Dashboard
+![Streamlit Dashboard](reports/screenshots/streamlit_dashboard.png)
+
+![Streamlit Rolling Average](reports/screenshots/streamlit_rolling.png)
+
+### Tableau Dashboard
+![Tableau Dashboard](reports/screenshots/tableau_dashboard.png)
+
 ## ⚙️ Setup Instructions
 
 ### Prerequisites
