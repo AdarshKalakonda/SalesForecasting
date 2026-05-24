@@ -44,7 +44,7 @@ The forecasts and insights are presented in two interactive tools — a Tableau 
 | Tool | Link |
 |---|---|
 | 📊 Tableau Dashboard | [View Live Dashboard](https://public.tableau.com/app/profile/adarsh.kalakonda/viz/SalesForecastingAnalyticsDashboard/SalesForecastingAnalyticsDashboard) |
-| 🚀 Streamlit App | *(Coming soon — deployment in progress)* |
+| 🚀 Streamlit App | https://salesforecastingadarshkalakonda.streamlit.app/ |
 
 ---
 
