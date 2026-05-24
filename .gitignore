@@ -5,5 +5,4 @@ __pycache__/
 *.pyo
 data/raw/
 *.csv
-reports/screenshots/
 .DS_Store
