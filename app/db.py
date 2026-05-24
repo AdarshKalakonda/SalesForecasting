@@ -8,6 +8,10 @@ load_dotenv()
 
 @st.cache_resource
 def get_engine():
+    neon_url = os.getenv("NEON_DB_URL")
+    if neon_url:
+        return create_engine(neon_url)
+
     password = quote_plus(os.getenv("DB_PASS", ""))
     url = (
         f"postgresql+psycopg2://"
